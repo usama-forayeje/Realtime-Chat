@@ -8,6 +8,7 @@
     "start": "node src/index.js"
   },
   "dependencies": {
+    "@clerk/backend": "^3.8.4",
     "@clerk/express": "^2.1.32",
     "cors": "^2.8.6",
     "cron": "^4.4.0",

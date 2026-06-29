@@ -1,0 +1,34 @@
+# --- Git & Version Control ---
+.git
+.gitignore
+
+# --- Node modules (সবচেয়ে গুরুত্বপূর্ণ) ---
+node_modules
+**/node_modules
+
+# --- Build & Logs ---
+dist
+build
+dist-ssr
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Environment & Secret files ---
+.env
+.env.local
+.env.*.local
+
+# --- IDE & OS files ---
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# --- Miscellaneous ---
+*.md
+*.dockerignore
+Dockerfile
+docker-compose.yml

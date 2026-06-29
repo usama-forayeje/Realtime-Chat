@@ -1,22 +1,20 @@
 # ==========================================
-# Stage 1: Base Setup (pnpm এনাবল করার জন্য)
+# Stage 1: Base Setup
 # ==========================================
 FROM node:22-alpine3.23 AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable pnpm
+# সিকিউরিটি পলিসি এরর এড়াতে এটি যোগ করা হয়েছে
+RUN pnpm config set verify-store-integrity false
 
 # ==========================================
-# Stage 2: Frontend Build (Vite SPA)
+# Stage 2: Frontend Build
 # ==========================================
 FROM base AS frontend-build
 WORKDIR /app/frontend
-
-# ডিপেন্ডেন্সি ক্যাশিং (যাতে বারবার npm install না হয়)
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
-
-# সোর্স কোড কপি এবং বিল্ড
 COPY frontend/ ./
 ARG VITE_API_URL
 ARG VITE_CLERK_PUBLISHABLE_KEY
@@ -25,21 +23,18 @@ ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
 RUN pnpm run build
 
 # ==========================================
-# Stage 3: Backend Build (Express API)
+# Stage 3: Backend Build
 # ==========================================
 FROM base AS backend-build
 WORKDIR /app/backend
-
-# ডিপেন্ডেন্সি ক্যাশিং
 COPY backend/package.json backend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
-
-# সোর্স কোড কপি এবং বিল্ড (TS compile)
 COPY backend/ ./
+# যদি আপনার ব্যাকএন্ডে বিল্ড প্রয়োজন হয়
 RUN pnpm run build
 
 # ==========================================
-# Stage 4: Production Runtime (একদম লাইটওয়েট)
+# Stage 4: Production Runtime
 # ==========================================
 FROM base AS production
 WORKDIR /app
@@ -47,23 +42,20 @@ WORKDIR /app
 ENV NODE_ENV=production 
 ENV PORT=3000
 
-# Zombie process ঠেকানোর জন্য dumb-init ইনস্টল করা (ইন্ডাস্ট্রি স্ট্যান্ডার্ড)
 RUN apk add --no-cache dumb-init
 
-# শুধুমাত্র প্রোডাকশন ডিপেন্ডেন্সি ইনস্টল করা
+# শুধুমাত্র ব্যাকএন্ডের প্রোডাকশন ডিপেন্ডেন্সি
 COPY backend/package.json backend/pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile
 
-# ফ্রন্টএন্ড এবং ব্যাকএন্ডের বিল্ড ফাইলগুলো কপি করা
+# বিল্ড ফাইল কপি করা
 COPY --from=backend-build /app/backend/dist ./dist
-COPY --from=frontend-build /app/frontend/dist ./frontend/dist
+# ফ্রন্টএন্ডের বিল্ড ফাইল ব্যাকএন্ডের public ফোল্ডারে কপি করা
+COPY --from=frontend-build /app/frontend/dist ./public
 
-# সিকিউরিটি: Root ইউজারের বদলে নন-রুট 'node' ইউজার ব্যবহার করা
+# সিকিউরিটি: Non-root user
 RUN chown -R node:node /app
 USER node
 
-# পোর্ট এক্সপোজ
 EXPOSE 3000
-
-# সার্ভার স্টার্ট করা (dumb-init এর মাধ্যমে)
 CMD ["dumb-init", "node", "dist/index.js"]

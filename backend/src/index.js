@@ -8,6 +8,7 @@ import { clerkMiddleware } from "@clerk/express";
 import { connectDB } from "./db.js";
 import "./lib/cron.js";
 import clerkWebhook from "./webhooks/clerk.webhook.js";
+import authRoutes from "./routes/auth.route.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -58,6 +59,8 @@ app.get("/health", (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+app.get("/api/auth/check", authRoutes )
 
 // ─── Static Files (production build) ─────────────────────────────────────────
 

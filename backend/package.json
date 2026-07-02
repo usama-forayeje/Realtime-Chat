@@ -10,10 +10,12 @@
   "dependencies": {
     "@clerk/backend": "^3.8.4",
     "@clerk/express": "^2.1.32",
+    "@imagekit/nodejs": "^7.9.0",
     "cors": "^2.8.6",
     "cron": "^4.4.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "mongoose": "^9.7.3"
+    "mongoose": "^9.7.3",
+    "multer": "^2.2.0"
   }
 }

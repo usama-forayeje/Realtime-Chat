@@ -9,6 +9,7 @@ import { connectDB } from "./db.js";
 import "./lib/cron.js";
 import clerkWebhook from "./webhooks/clerk.webhook.js";
 import authRoutes from "./routes/auth.route.js";
+import massageRoutes from "./routes/massage.route.js"
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -61,6 +62,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.get("/api/auth/check", authRoutes )
+app.get("/api/messages", massageRoutes )
 
 // ─── Static Files (production build) ─────────────────────────────────────────
 

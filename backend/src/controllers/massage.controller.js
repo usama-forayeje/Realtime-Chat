@@ -1,8 +1,11 @@
 import mongoose from "mongoose";
 import User from "../models/user.model.js";
 import Message from "../models/message.model.js";
+import { uploadChatMedia } from "../lib/imagekit.js";
+import { getUserSocketId, io } from "../lib/socket.js";
+import { getFileCategory } from "../middlewares/upload.middleware.js";
 
-// ─── All Users (for sidebar search) ───────────────────────────────────────
+// ─── All Users (sidebar search) ───────────────────────────────────────────────
 
 export async function getUsersForSidebar(req, res) {
   try {
@@ -10,7 +13,7 @@ export async function getUsersForSidebar(req, res) {
 
     const users = await User.find({ _id: { $ne: loggedInUserId } })
       .select("-clerkId")
-      .lean(); // plain JS object — faster
+      .lean();
 
     res.status(200).json(users);
   } catch (error) {
@@ -19,23 +22,21 @@ export async function getUsersForSidebar(req, res) {
   }
 }
 
-// ─── Recent Conversations (for sidebar list) ─────────────────────────────
+// ─── Recent Conversations (sidebar list) ─────────────────────────────────────
 
 export async function getConversationsForSidebar(req, res) {
   try {
-    const loggedInUserId = req.user._id; // ✅ consistent variable name
+    const loggedInUserId = req.user._id;
 
     const conversations = await Message.aggregate([
-      // Step 1: আমি যেসব message এ involved (sender বা receiver)
       {
         $match: {
-          $or: [{ senderId: loggedInUserId }, { receiverId: loggedInUserId }],
+          $or: [
+            { senderId: loggedInUserId },
+            { receiverId: loggedInUserId },
+          ],
         },
       },
-
-      // Step 2: conversation partner কে group করো
-      // আমি sender হলে → partner = receiverId
-      // আমি receiver হলে → partner = senderId
       {
         $group: {
           _id: {
@@ -63,13 +64,7 @@ export async function getConversationsForSidebar(req, res) {
           },
         },
       },
-
-      // Step 3: সবচেয়ে নতুন conversation আগে দেখাও
-      {
-        $sort: { lastMessageAt: -1 },
-      },
-
-      // Step 4: partner এর user info নিয়ে আসো (JOIN)
+      { $sort: { lastMessageAt: -1 } },
       {
         $lookup: {
           from: "users",
@@ -78,13 +73,7 @@ export async function getConversationsForSidebar(req, res) {
           as: "userInfo",
         },
       },
-
-      // Step 5: userInfo array থেকে প্রথম element বের করো
-      {
-        $unwind: "$userInfo",
-      },
-
-      // Step 6: final shape তৈরি করো
+      { $unwind: "$userInfo" },
       {
         $project: {
           _id: "$userInfo._id",
@@ -105,7 +94,8 @@ export async function getConversationsForSidebar(req, res) {
   }
 }
 
-// Get all messages between logged-in user and a specific user (for chat window)
+// ─── Get Messages (chat window) ───────────────────────────────────────────────
+
 export async function getMessages(req, res) {
   try {
     const { id: userToChatId } = req.params;
@@ -118,6 +108,12 @@ export async function getMessages(req, res) {
       ],
     }).sort({ createdAt: 1 });
 
+    // message গুলো read হিসেবে mark করো
+    await Message.updateMany(
+      { senderId: userToChatId, receiverId: myId, isRead: false },
+      { $set: { isRead: true } }
+    );
+
     res.status(200).json(messages);
   } catch (error) {
     console.error("[getMessages]", error.message);
@@ -125,42 +121,88 @@ export async function getMessages(req, res) {
   }
 }
 
-//  Send a message to a specific user
+// ─── Send Message ─────────────────────────────────────────────────────────────
+
 export async function sendMessage(req, res) {
   try {
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
     const { text } = req.body;
-    const files = req.files; // Access uploaded files
+    const files = req.files ?? [];
 
-    let imageUrls = [];
-    let videoUrls = [];
-    if (req.files && req.files.length > 0) {
-      imageUrls = req.files
-        .filter((file) => file.mimetype.startsWith("image/"))
-        .map((file) => file.path);
-      videoUrls = req.files
-        .filter((file) => file.mimetype.startsWith("video/"))
-        .map((file) => file.path);
-
-      const url = (uploadedFiles = req.files.map((file) => ({
-        filename: file.originalname,
-
-        url: file.path,
-        mimetype: file.mimetype,
-        size: file.size,
-      })));
+    // text বা file — অন্তত একটা লাগবে
+    if (!text?.trim() && files.length === 0) {
+      return res.status(400).json({ error: "Message text or file is required" });
     }
 
-    const newMessage = new Message({
+    // receiver exist করে কিনা চেক করো
+    const receiverExists = await User.exists({ _id: receiverId });
+    if (!receiverExists) {
+      return res.status(404).json({ error: "Receiver not found" });
+    }
+
+    // ─── File Upload ──────────────────────────────────────────────────────────
+
+    // প্রতিটা file ImageKit এ upload করো, result save করো
+    const uploadedAttachments = await Promise.all(
+      files.map(async (file) => {
+        const result = await uploadChatMedia(file);
+        return {
+          url: result.url,
+          fileId: result.fileId,       // delete করার জন্য save করো
+          name: result.name,
+          size: result.size,
+          fileType: getFileCategory(file.mimetype), // image/video/audio/file
+          mimeType: file.mimetype,
+        };
+      })
+    );
+
+    // ─── Save Message ─────────────────────────────────────────────────────────
+
+    const newMessage = await Message.create({
       senderId,
       receiverId,
-      text,
-      imageUrls,
-      videoUrls,
+      text: text?.trim() ?? "",
+      attachments: uploadedAttachments,
+      isRead: false,
     });
+
+    // ─── Realtime Emit ────────────────────────────────────────────────────────
+
+    const receiverSocketId = getUserSocketId(receiverId.toString());
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("newMessage", newMessage);
+    }
+
+    res.status(201).json(newMessage);
   } catch (error) {
     console.error("[sendMessage]", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+// ─── Mark Messages as Read ────────────────────────────────────────────────────
+
+export async function markMessagesAsRead(req, res) {
+  try {
+    const { id: senderId } = req.params;
+    const receiverId = req.user._id;
+
+    await Message.updateMany(
+      { senderId, receiverId, isRead: false },
+      { $set: { isRead: true } }
+    );
+
+    // sender কে জানাও যে তার message পড়া হয়েছে
+    const senderSocketId = getUserSocketId(senderId.toString());
+    if (senderSocketId) {
+      io.to(senderSocketId).emit("messagesRead", { by: receiverId });
+    }
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("[markMessagesAsRead]", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 }

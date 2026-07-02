@@ -10,6 +10,7 @@ import "./lib/cron.js";
 import clerkWebhook from "./webhooks/clerk.webhook.js";
 import authRoutes from "./routes/auth.route.js";
 import massageRoutes from "./routes/massage.route.js"
+import { app, server } from "./lib/socket.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -17,10 +18,6 @@ const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || "development";
 const FRONTEND_URL = process.env.FRONTEND_URL;
 const PUBLIC_DIR = path.join(process.cwd(), "public");
-
-// ─── App Init ────────────────────────────────────────────────────────────────
-
-const app = express();
 
 // ─── Webhook Route (raw body — MUST be before express.json()) ────────────────
 
@@ -97,7 +94,7 @@ app.use((err, _req, res, _next) => {
 const startServer = async () => {
   try {
     await connectDB();
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.info(`[Server] Running on port ${PORT} (${NODE_ENV})`);
       if (!FRONTEND_URL) {
         console.warn("[Server] WARNING: FRONTEND_URL is not set — CORS may block requests");

@@ -1,7 +1,7 @@
 import express from 'express';
 import { protectRoute } from '../middlewares/auth.middleware.js';
-import { getConversationsForSidebar, getMessages, getUsersForSidebar, sendMessage } from '../controllers/massage.controller.js';
 import { uploadAny } from '../middlewares/upload.middleware.js';
+import { getConversationsForSidebar, getMessages, getUsersForSidebar, sendMessage } from '../controllers/massage.controller.js';
  
 const router = express.Router();
 
